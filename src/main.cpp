@@ -19,17 +19,20 @@
 #define BATTERY_LEVEL                    A3      // GPIO 39
 #define LED                              5
 
+#define NEW_SYSTEM 
+
 #define MOTOR_L                          2       // GPIO 2
 #define MOTOR_L_DIR                      15      // GPIO 15
-  
+
+#define MOTOR_R                          32      // GPIO 32
+#define MOTOR_R_DIR                      33      // GPIO 33
+
+
+#define REFV                             5.120   // factor
 
 
 
-#define REFV                             5.120     // factor
-
-
-
-//WiFiServer serverWiFi(80);             // Port 80 
+//WiFiServer serverWiFi(80);                     // Port 80 
 //String ledStatus = "off";
 
 AsyncWebServer server(80);
@@ -41,14 +44,22 @@ const char* speedLeft = "speedLeft";
 hw_timer_t *timer = NULL;
 volatile uint16_t tim;
 volatile int oneSecFlag;
-volatile int speedL;                             // between -255 up to +255
+volatile int speedL, speedR;                     // between -255 up to +255
+volatile int countL, countR;
 void IRAM_ATTR myTimer(void);
+
+// SPEEDOMETER:
+const uint8_t impulsL = 14;
+const uint8_t impulsR = 27;
+void impuls_R_isr(void);
+void impuls_L_isr(void);
 
 
 
 // R"()"   Rawliteral - innerhalb dieses Strings werden die / nicht interpretiert. darum kein /" usw... 
 
-const char index_html[] PROGMEM = R"(
+char index_html[1000];
+const char index_html_a[] = R"(
 <!DOCTYPE HTML><html><head>
     <title>HTML Form to Input Data</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -57,7 +68,9 @@ const char index_html[] PROGMEM = R"(
         h2 {font-size: 3.0rem; color: #00FF00;}
     </style>
     </head><body>
-    <h2>HTL St.P&ouml;lten Elektronik und Technische Informatik</h2> 
+    <h2>HTL St.P&ouml;lten Elektronik und Technische Informatik</h2>)";
+    
+const char index_html_b[] =  R"(
     <form action="/get">
         Enter a string: <input type="text" name="input_string">
         <input type="submit" value="Submit">
@@ -89,8 +102,17 @@ void setup()
     pinMode(LED , OUTPUT);
     pinMode(MOTOR_L, OUTPUT);
     pinMode(MOTOR_L_DIR, OUTPUT);
+    pinMode(MOTOR_R, OUTPUT);
+    pinMode(MOTOR_R_DIR, OUTPUT);
     speedL = -100;
+    speedR = -100;
+    countL = countR = 0;
 
+    pinMode(impulsL, INPUT);
+    pinMode(impulsR, INPUT);
+
+    attachInterrupt(digitalPinToInterrupt(impulsR), impuls_R_isr, FALLING);
+    attachInterrupt(digitalPinToInterrupt(impulsL), impuls_L_isr, FALLING);
 
 
 
@@ -109,6 +131,8 @@ void setup()
     Serial.println();
     Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
+
+    sprintf(index_html,"%s TEXT! %s", index_html_a, index_html_b);
 
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
     { request->send_P(200, "text/html", index_html); } ); //<head>...<body>
@@ -129,7 +153,7 @@ void setup()
             input_parameter = speedLeft;
 
             speedL = input_message.toInt();
-            
+            speedR = speedL;
         }
         else 
         {
@@ -163,9 +187,34 @@ void loop()
         Serial.print(" ");
         x = digitalRead(MOTOR_L_DIR);
         Serial.print(x);
+
+        Serial.print(" L: ");
+        x = countL;
+        Serial.print(x);
+        Serial.print(" R: ");
+        x = countR;
+        Serial.print(x);
+
         Serial.println();
     }
 }
+
+//****************************************************************
+// ISR Speedometer:
+//****************************************************************
+
+void impuls_L_isr(void)
+{
+    countL++;
+}
+
+void impuls_R_isr(void)
+{
+    countR++;
+}
+
+//****************************************************************
+//****************************************************************
 
 void IRAM_ATTR myTimer(void)   // periodic timer interrupt, expires each 1 msec
 {
@@ -183,10 +232,48 @@ void IRAM_ATTR myTimer(void)   // periodic timer interrupt, expires each 1 msec
     }
 
     // LEFT: 
+#ifdef NEW_SYSTEM
+    if (speedL > 0) 
+    { 
+        digitalWrite(MOTOR_L_DIR, LOW ); 
+        l = +speedL; 
+        if ((tick & 0xff) < l) digitalWrite(MOTOR_L, HIGH); else digitalWrite(MOTOR_L, LOW);
+    }
+    else            
+    { 
+        digitalWrite(MOTOR_L, LOW ); 
+        l = -speedL; 
+        if ((tick & 0xff) < l) digitalWrite(MOTOR_L_DIR, HIGH); else digitalWrite(MOTOR_L_DIR, LOW);
+    }
+#elif
     if (speedL > 0) { digitalWrite(MOTOR_L_DIR, LOW ); l = +speedL; }
     else            { digitalWrite(MOTOR_L_DIR, HIGH); l = -speedL; }
 
     if ((tick & 0xff) < l) digitalWrite(MOTOR_L, HIGH); else digitalWrite(MOTOR_L, LOW);
+#endif
+
+    // RIGHT: 
+#ifdef NEW_SYSTEM
+    if (speedR > 0) 
+    { 
+        digitalWrite(MOTOR_R, LOW ); 
+        r = -speedR; 
+        if ((tick & 0xff) < l) digitalWrite(MOTOR_R_DIR, HIGH); else digitalWrite(MOTOR_R_DIR, LOW);
+    }
+    else            
+    { 
+        digitalWrite(MOTOR_R_DIR, LOW ); 
+        r = +speedR; 
+        if ((tick & 0xff) < l) digitalWrite(MOTOR_R, HIGH); else digitalWrite(MOTOR_R, LOW);
+    }
+#elif
+    if (speedR > 0) { digitalWrite(MOTOR_R_DIR, HIGH); r = +speedR; }
+    else            { digitalWrite(MOTOR_R_DIR, LOW ); r = -speedR; }
+
+    if ((tick & 0xff) < r) digitalWrite(MOTOR_R, HIGH); else digitalWrite(MOTOR_R, LOW);
+#endif
+
+
 }
 
 
