@@ -1,13 +1,13 @@
 /******************************************************************
+
                         WiFi LoLin32
                                                     қuran nov 2022
 ******************************************************************/
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <WiFiClient.h>
-#include <WiFiAP.h>
 #include <AsyncTCP.h>
+#include <SPIFFS.h>
 #include <ESPAsyncWebServer.h>
 #include "wlan.h"
 
@@ -19,21 +19,14 @@
 #define BATTERY_LEVEL                    A3      // GPIO 39
 #define LED                              5
 
-#define NEW_SYSTEM 
+// #define NEW_SYSTEM 
 
 #define MOTOR_L                          2       // GPIO 2
 #define MOTOR_L_DIR                      15      // GPIO 15
-
 #define MOTOR_R                          32      // GPIO 32
 #define MOTOR_R_DIR                      33      // GPIO 33
 
-
-#define REFV                             5.120   // factor
-
-
-
-//WiFiServer serverWiFi(80);                     // Port 80 
-//String ledStatus = "off";
+#define REFV                             50.     // factor
 
 AsyncWebServer server(80);
 
@@ -58,27 +51,34 @@ void impuls_L_isr(void);
 
 // R"()"   Rawliteral - innerhalb dieses Strings werden die / nicht interpretiert. darum kein /" usw... 
 
-char index_html[1000];
-const char index_html_a[] = R"(
+const char index_html[] = R"(
 <!DOCTYPE HTML><html><head>
-    <title>HTML Form to Input Data</title>
+    <title>LoLin32 WiFi System</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         html {font-family: Verdana; display: inline-block; text-align: center;}
         h2 {font-size: 3.0rem; color: #00FF00;}
     </style>
+    <script>
+        function message_popup()
+        {
+            setTimeout(function() {document.location.reload(false); }, 500);
+        }
+    </script>
     </head><body>
-    <h2>HTL St.P&ouml;lten Elektronik und Technische Informatik</h2>)";
-    
-const char index_html_b[] =  R"(
-    <form action="/get">
-        Enter a string: <input type="text" name="input_string">
+    <h2>HTL St.P&ouml;lten :: EL</h2>
+    <br>
+    battery-levl: %input_adc% Volt
+    <br>
+    <form action="/get" target="hidden-form">
+        Enter string: <input type="text" name="input_string">
         <input type="submit" value="Submit">
     </form><br>
-    <form action="/get">
-        speed Left (-255 up to +255): <input type="text" name="speedLeft">
-        <input type="submit" value="Submit">
-    </form><br>
+    <form action="/get" target="hidden-form">
+        speed Left (-255 up to +255) - current value %input_speedL%: <input type="number" name="speedLeft">
+        <input type="submit" value="Submit" onclick="message_popup() ">
+    </form>
+    <iframe style="display:none" name="hidden-form"></iframe>
 </body></html>)";
 
 void notFound(AsyncWebServerRequest *request) 
@@ -86,6 +86,58 @@ void notFound(AsyncWebServerRequest *request)
     request->send(404, "text/plain", "Not found");
 }
 
+String read_file(fs::FS &fs, const char * path)
+{
+    // Serial.printf("Reading file: %s\r\n", path);
+    File file = fs.open(path, "r");
+    if(!file || file.isDirectory())
+    {
+        Serial.println("Empty file/Failed to open file");
+        return String();
+    }
+    // Serial.println("- read from file:");
+    String fileContent;
+    while(file.available())
+    {
+        fileContent+=String((char)file.read());
+    }
+    file.close();
+    // Serial.println(fileContent);
+    return fileContent;
+}
+
+void write_file(fs::FS &fs, const char * path, const char * message)
+{
+    // Serial.printf("Writing file: %s\r\n", path);
+    File file = fs.open(path, "w");
+    if(!file)
+    {
+        Serial.println("Failed to open file for writing");
+        return;
+    }
+    if(file.print(message))
+    {
+        // Serial.println("SUCCESS in writing file");
+    } else {
+        // Serial.println("FAILED to write file");
+    }
+    file.close();
+}
+
+String processor(const String& var)
+{
+    if(var == "input_string")
+    {
+       return read_file(SPIFFS, "/input_string.txt");
+    }  else if(var == "input_speedL")
+    {
+       return read_file(SPIFFS, "/input_speedL.txt");
+    }  else if(var == "input_adc")
+    {
+       return read_file(SPIFFS, "/input_adc.txt");
+    }
+    return String();
+}
 
 
 void setup() 
@@ -120,6 +172,13 @@ void setup()
 
     Serial.begin(115200);
     Serial.println("start!");
+
+    if(!SPIFFS.begin(true))
+    {
+        Serial.println("An Error has occurred while mounting SPIFFS");
+        return;
+    }
+
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
 
@@ -132,10 +191,9 @@ void setup()
     Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
 
-    sprintf(index_html,"%s TEXT! %s", index_html_a, index_html_b);
 
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-    { request->send_P(200, "text/html", index_html); } ); //<head>...<body>
+    { request->send_P(200, "text/html", index_html, processor); } ); 
 
     server.on("/get", HTTP_GET, [] (AsyncWebServerRequest *request) 
     { 
@@ -154,6 +212,7 @@ void setup()
 
             speedL = input_message.toInt();
             speedR = speedL;
+            write_file(SPIFFS, "/input_speedL.txt", input_message.c_str());
         }
         else 
         {
@@ -172,7 +231,13 @@ void setup()
 void loop() 
 {
     static int x = FALSE; 
-    float adc0; 
+    float adc0;
+    char text[20]; 
+
+    int myInteger = read_file(SPIFFS, "/input_speedL.txt").toInt();
+    //int myInteger = read_file(SPIFFS, "/input_speedL.txt").toInt();
+    //Serial.print("integer entered: ");
+    //Serial.println(myInteger);
 
     if (oneSecFlag == TRUE)
     {
@@ -180,7 +245,12 @@ void loop()
 
         x = (x == HIGH) ? LOW : HIGH;
         digitalWrite(LED, x);
+
         adc0 = analogRead(BATTERY_LEVEL) / REFV; 
+        sprintf(text,"%.2f",adc0);
+        //sprintf(text,"5.4");
+        write_file(SPIFFS, "/input_adc.txt", text);
+
         Serial.print(adc0); 
         Serial.print(" ");
         Serial.print(speedL);
@@ -245,7 +315,7 @@ void IRAM_ATTR myTimer(void)   // periodic timer interrupt, expires each 1 msec
         l = -speedL; 
         if ((tick & 0xff) < l) digitalWrite(MOTOR_L_DIR, HIGH); else digitalWrite(MOTOR_L_DIR, LOW);
     }
-#elif
+#else
     if (speedL > 0) { digitalWrite(MOTOR_L_DIR, LOW ); l = +speedL; }
     else            { digitalWrite(MOTOR_L_DIR, HIGH); l = -speedL; }
 
@@ -266,7 +336,7 @@ void IRAM_ATTR myTimer(void)   // periodic timer interrupt, expires each 1 msec
         r = +speedR; 
         if ((tick & 0xff) < l) digitalWrite(MOTOR_R, HIGH); else digitalWrite(MOTOR_R, LOW);
     }
-#elif
+#else
     if (speedR > 0) { digitalWrite(MOTOR_R_DIR, HIGH); r = +speedR; }
     else            { digitalWrite(MOTOR_R_DIR, LOW ); r = -speedR; }
 
