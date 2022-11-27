@@ -142,13 +142,6 @@ String processor(const String& var)
 
 void setup() 
 {
-    // TIMER INTERRUPT:
-    timer = timerBegin(0, 80, true);
-    timerAttachInterrupt(timer, &myTimer, true);
-    timerAlarmWrite(timer, 100, true);  // 0.1 msec
-    timerAlarmEnable(timer);
-    oneSecFlag = FALSE; 
-
     // hard ware configuration: 
     pinMode(BATTERY_LEVEL, INPUT);
     pinMode(LED , OUTPUT);
@@ -166,7 +159,12 @@ void setup()
     attachInterrupt(digitalPinToInterrupt(impulsR), impuls_R_isr, FALLING);
     attachInterrupt(digitalPinToInterrupt(impulsL), impuls_L_isr, FALLING);
 
-
+// TIMER INTERRUPT:
+    timer = timerBegin(0, 80, true);
+    timerAttachInterrupt(timer, &myTimer, true);
+    timerAlarmWrite(timer, 100, true);  // 0.1 msec
+    timerAlarmEnable(timer);
+    oneSecFlag = FALSE; 
 
     tim = WAIT_500_MSEC; while (tim);
 
@@ -226,11 +224,15 @@ void setup()
     });
     server.onNotFound(notFound);
     server.begin();
+
+    
+
 }
 
 void loop() 
 {
     static int x = FALSE; 
+    static int heart = TRUE;
     float adc0;
     char text[20]; 
 
@@ -243,8 +245,8 @@ void loop()
     {
         oneSecFlag = FALSE;
 
-        x = (x == HIGH) ? LOW : HIGH;
-        digitalWrite(LED, x);
+        heart = (heart == HIGH) ? LOW : HIGH;
+        digitalWrite(LED, heart);
 
         adc0 = analogRead(BATTERY_LEVEL) / REFV; 
         sprintf(text,"%.2f",adc0);
