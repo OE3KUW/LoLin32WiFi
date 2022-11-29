@@ -1,7 +1,7 @@
 /******************************************************************
 
-                        WiFi LoLin32
-                                                    қuran nov 2022
+                        LoLin32 WiFi
+                                                    қuran dez 2022
 ******************************************************************/
 
 #include <Arduino.h>
@@ -14,8 +14,7 @@
 #define TRUE                             true
 #define FALSE                            false
 #define WAIT_500_MSEC                    5000 
-
-//#define BATTERY_LEVEL                    A0      // GPIO 36
+#define WAIT_ONE_SEC                     10000
 #define BATTERY_LEVEL                    A3      // GPIO 39
 #define LED                              5
 
@@ -30,7 +29,7 @@
 
 AsyncWebServer server(80);
 
-const char* input_parameter1 = "input_string";
+const char* inputText = "inputText";
 const char* speedLeft = "speedLeft";
 
 //  TIMER INTERRUPT:
@@ -51,13 +50,14 @@ void impuls_L_isr(void);
 
 // R"()"   Rawliteral - innerhalb dieses Strings werden die / nicht interpretiert. darum kein /" usw... 
 
+
 const char index_html[] = R"(
 <!DOCTYPE HTML><html><head>
     <title>LoLin32 WiFi System</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         html {font-family: Verdana; display: inline-block; text-align: center;}
-        h2 {font-size: 3.0rem; color: #00FF00;}
+        h2 {font-size: 2.0rem; color: #00cc00;}
     </style>
     <script>
         function message_popup()
@@ -65,13 +65,14 @@ const char index_html[] = R"(
             setTimeout(function() {document.location.reload(false); }, 500);
         }
     </script>
-    </head><body>
+    </head>
+    <body>
     <h2>HTL St.P&ouml;lten :: EL</h2>
     <br>
     battery-levl: %input_adc% Volt
     <br>
     <form action="/get" target="hidden-form">
-        Enter string: <input type="text" name="input_string">
+        Enter string: <input type="text" name="inputText">
         <input type="submit" value="Submit">
     </form><br>
     <form action="/get" target="hidden-form">
@@ -80,6 +81,8 @@ const char index_html[] = R"(
     </form>
     <iframe style="display:none" name="hidden-form"></iframe>
 </body></html>)";
+
+// handle fileSystem:
 
 void notFound(AsyncWebServerRequest *request) 
 {
@@ -126,19 +129,11 @@ void write_file(fs::FS &fs, const char * path, const char * message)
 
 String processor(const String& var)
 {
-    if(var == "input_string")
-    {
-       return read_file(SPIFFS, "/input_string.txt");
-    }  else if(var == "input_speedL")
-    {
-       return read_file(SPIFFS, "/input_speedL.txt");
-    }  else if(var == "input_adc")
-    {
-       return read_file(SPIFFS, "/input_adc.txt");
-    }
+    if     (var == "inputText")    { return read_file(SPIFFS, "/input_Text.txt");    }  
+    else if(var == "input_speedL") { return read_file(SPIFFS, "/input_speedL.txt");  }  
+    else if(var == "input_adc")    { return read_file(SPIFFS, "/input_adc.txt");     }
     return String();
 }
-
 
 void setup() 
 {
@@ -149,8 +144,8 @@ void setup()
     pinMode(MOTOR_L_DIR, OUTPUT);
     pinMode(MOTOR_R, OUTPUT);
     pinMode(MOTOR_R_DIR, OUTPUT);
-    speedL = -100;
-    speedR = -100;
+    speedL = 0; // -255 up to +255
+    speedR = 0; // -255 up to +255
     countL = countR = 0;
 
     pinMode(impulsL, INPUT);
@@ -159,14 +154,13 @@ void setup()
     attachInterrupt(digitalPinToInterrupt(impulsR), impuls_R_isr, FALLING);
     attachInterrupt(digitalPinToInterrupt(impulsL), impuls_L_isr, FALLING);
 
-// TIMER INTERRUPT:
     timer = timerBegin(0, 80, true);
     timerAttachInterrupt(timer, &myTimer, true);
     timerAlarmWrite(timer, 100, true);  // 0.1 msec
     timerAlarmEnable(timer);
     oneSecFlag = FALSE; 
 
-    tim = WAIT_500_MSEC; while (tim);
+    tim = WAIT_ONE_SEC; while (tim);
 
     Serial.begin(115200);
     Serial.println("start!");
@@ -185,23 +179,21 @@ void setup()
         Serial.println("Connecting...");
         return;
     }
+
     Serial.println();
     Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
 
-
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-    { request->send_P(200, "text/html", index_html, processor); } ); 
-
-    server.on("/get", HTTP_GET, [] (AsyncWebServerRequest *request) 
-    { 
+    server.on("/",    HTTP_GET, [](AsyncWebServerRequest *request){ request->send_P(200, "text/html", index_html, processor); } );  
+    
+    server.on("/get", HTTP_GET, [](AsyncWebServerRequest *request){ 
         String input_message;  
         String input_parameter;
 
-        if (request->hasParam(input_parameter1)) 
+        if (request->hasParam(inputText)) 
         {
-            input_message = request->getParam(input_parameter1)->value();
-            input_parameter = input_parameter1;
+            input_message = request->getParam(inputText)->value();
+            input_parameter = inputText;
         }
         else if (request->hasParam(speedLeft)) 
         {
@@ -224,8 +216,7 @@ void setup()
     });
     server.onNotFound(notFound);
     server.begin();
-
-    
+  
 
 }
 
@@ -237,9 +228,6 @@ void loop()
     char text[20]; 
 
     int myInteger = read_file(SPIFFS, "/input_speedL.txt").toInt();
-    //int myInteger = read_file(SPIFFS, "/input_speedL.txt").toInt();
-    //Serial.print("integer entered: ");
-    //Serial.println(myInteger);
 
     if (oneSecFlag == TRUE)
     {
@@ -253,27 +241,11 @@ void loop()
         //sprintf(text,"5.4");
         write_file(SPIFFS, "/input_adc.txt", text);
 
-        Serial.print(adc0); 
-        Serial.print(" ");
-        Serial.print(speedL);
-        Serial.print(" ");
-        x = digitalRead(MOTOR_L_DIR);
-        Serial.print(x);
-
-        Serial.print(" L: ");
-        x = countL;
-        Serial.print(x);
-        Serial.print(" R: ");
-        x = countR;
-        Serial.print(x);
-
-        Serial.println();
+        // Serial.println(adc0); 
     }
 }
 
-//****************************************************************
-// ISR Speedometer:
-//****************************************************************
+//** ISR Speedometer: ********************************************
 
 void impuls_L_isr(void)
 {
@@ -285,10 +257,9 @@ void impuls_R_isr(void)
     countR++;
 }
 
-//****************************************************************
-//****************************************************************
+//** Timer Interrupt:   ******************************************
 
-void IRAM_ATTR myTimer(void)   // periodic timer interrupt, expires each 1 msec
+void IRAM_ATTR myTimer(void)   // periodic timer interrupt, expires each 0.1 msec
 {
     static int32_t tick = 0;
     int l, r;
@@ -298,9 +269,10 @@ void IRAM_ATTR myTimer(void)   // periodic timer interrupt, expires each 1 msec
 
     if (tim) tim--;
 
-    if ((tick % 10000) == 0) 
+    if (tick == 10000) 
     {
-        oneSecFlag = TRUE; 
+        oneSecFlag = TRUE;
+        tick = 0; 
     }
 
     // LEFT: 
