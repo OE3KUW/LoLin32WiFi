@@ -18,7 +18,7 @@
 #define BATTERY_LEVEL                    A3      // GPIO 39
 #define LED                              5
 
-// #define NEW_SYSTEM 
+#define NEW_SYSTEM 
 
 #define MOTOR_L                          2       // GPIO 2
 #define MOTOR_L_DIR                      15      // GPIO 15
