@@ -9,6 +9,7 @@
 #include <AsyncTCP.h>
 #include <SPIFFS.h>
 #include <ESPAsyncWebServer.h>
+#include "FastLED.h"  // wird im .pio/lipdeps/lolin32 gefunden! 
 #include "wlan.h"
 
 #define TRUE                             true
@@ -18,7 +19,11 @@
 #define BATTERY_LEVEL                    A3      // GPIO 39
 #define LED                              5
 
-#define NEW_SYSTEM 
+#define NUM_LEDS                         4
+#define DATA_PIN                         23
+#define CLOCK_PIN                        18
+
+// #define NEW_SYSTEM 
 
 #define MOTOR_L                          2       // GPIO 2
 #define MOTOR_L_DIR                      15      // GPIO 15
@@ -49,6 +54,10 @@ const uint8_t impulsL = 14;
 const uint8_t impulsR = 27;
 void impuls_R_isr(void);
 void impuls_L_isr(void);
+
+// FastLED:
+
+CRGB leds[NUM_LEDS];
 
 
 
@@ -106,6 +115,7 @@ String read_file(fs::FS &fs, const char * path)
 {
     // Serial.printf("Reading file: %s\r\n", path);
     File file = fs.open(path, "r");
+    
     if(!file || file.isDirectory())
     {
         Serial.println("Empty file/Failed to open file");
@@ -163,6 +173,18 @@ void setup()
     pinMode(impulsL, INPUT);
     pinMode(impulsR, INPUT);
 
+//  FastLED:
+
+    FastLED.addLeds<SK9822, DATA_PIN, CLOCK_PIN, RBG>(leds, NUM_LEDS);
+
+    leds[0] = CRGB{255,   0,   0};  
+    leds[1] = CRGB{  0, 255,   0};
+    leds[2] = CRGB{  0,   0, 255};
+    leds[3] = CRGB{255, 255, 255};
+
+    FastLED.show();
+
+
     attachInterrupt(digitalPinToInterrupt(impulsR), impuls_R_isr, FALLING);
     attachInterrupt(digitalPinToInterrupt(impulsL), impuls_L_isr, FALLING);
 
@@ -185,6 +207,8 @@ void setup()
 
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
+
+     tim = WAIT_ONE_SEC; while (tim);
 
     if (WiFi.waitForConnectResult() != WL_CONNECTED) 
     {
